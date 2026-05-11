@@ -304,7 +304,8 @@ const STYLES = `
   .leaflet-control-zoom {
     border: none !important;
     box-shadow: none !important;
-    margin-bottom: 120px !important;
+    margin-right: 12px !important;
+    transition: margin-bottom 0.32s cubic-bezier(0.22,1,0.36,1) !important;
   }
   .leaflet-control-zoom a {
     background: rgba(255,248,240,0.92) !important;
@@ -358,6 +359,7 @@ export default function Tracker() {
   const mapRef     = useRef(null)
   const leafletMap = useRef(null)
   const markersRef = useRef({})
+  const sheetRef   = useRef(null)
 
   const { members, locationError } = useMembers({
     roomId:     session?.roomId,
@@ -384,6 +386,21 @@ export default function Tracker() {
     return () => clearInterval(id)
   }, [session])
 
+  // Dynamic zoom control offset — follows sheet height
+  useEffect(() => {
+    const updateZoomOffset = () => {
+      if (!sheetRef.current) return
+      const h = sheetRef.current.offsetHeight
+      const zoomEl = document.querySelector('.leaflet-control-zoom')
+      if (zoomEl) zoomEl.style.marginBottom = `${h + 16}px`
+    }
+
+    updateZoomOffset()
+    // Wait for sheet open/close animation to finish before measuring
+    const t = setTimeout(updateZoomOffset, 350)
+    return () => clearTimeout(t)
+  }, [showMembers, members])
+
   // Init Leaflet — warm light tiles
   useEffect(() => {
     if (!mapRef.current || leafletMap.current) return
@@ -405,6 +422,15 @@ export default function Tracker() {
       ).addTo(leafletMap.current)
 
       L.control.zoom({ position: 'bottomright' }).addTo(leafletMap.current)
+
+      // Set initial offset after zoom control mounts
+      setTimeout(() => {
+        if (sheetRef.current) {
+          const h = sheetRef.current.offsetHeight
+          const zoomEl = document.querySelector('.leaflet-control-zoom')
+          if (zoomEl) zoomEl.style.marginBottom = `${h + 16}px`
+        }
+      }, 100)
     })
 
     return () => {
@@ -421,7 +447,9 @@ export default function Tracker() {
 
     import('leaflet').then(L => {
       const validMembers = members.filter(m => m.lat && m.lng)
+      const meMarker = members.find(m => m.isMe)
 
+      // Remove markers for members who left
       Object.keys(markersRef.current).forEach(id => {
         if (!validMembers.find(m => m.id === id)) {
           markersRef.current[id].remove()
@@ -448,6 +476,7 @@ export default function Tracker() {
                 : '0 4px 14px rgba(0,0,0,0.15)'
               };
               transition:box-shadow 0.3s;
+              cursor:${isMe ? 'default' : 'pointer'};
             ">${initial}</div>
             ${isMe ? `<div style="
               position:absolute; bottom:-2px; left:50%; transform:translateX(-50%);
@@ -465,9 +494,78 @@ export default function Tracker() {
             .setLatLng([member.lat, member.lng])
             .setIcon(icon)
         } else {
-          markersRef.current[member.id] = L.marker([member.lat, member.lng], { icon })
-            .bindPopup(`<b style="font-family:'DM Sans',sans-serif;color:#1A1008">${member.name}</b>${member.isMe ? ' <span style="color:#F97316;font-size:11px">(you)</span>' : ''}`)
+          const marker = L.marker([member.lat, member.lng], { icon })
             .addTo(leafletMap.current)
+
+          if (!member.isMe) {
+            marker.on('click', () => {
+              const origin = meMarker?.lat && meMarker?.lng
+                ? `${meMarker.lat},${meMarker.lng}`
+                : ''
+              const dest = `${member.lat},${member.lng}`
+              const mapsUrl = origin
+                ? `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=driving`
+                : `https://www.google.com/maps/dir/?api=1&destination=${dest}`
+
+              const popupHtml = `
+                <div style="font-family:'DM Sans',sans-serif; min-width:150px; padding:2px 4px;">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                    <div style="
+                      width:30px; height:30px; border-radius:50%;
+                      background:${color.pin}22; border:2px solid ${color.pin}60;
+                      display:flex; align-items:center; justify-content:center;
+                      color:${color.pin}; font-weight:700; font-size:13px; flex-shrink:0;
+                    ">${initial}</div>
+                    <div>
+                      <div style="font-weight:700; color:#1A1008; font-size:13px; line-height:1.2;">
+                        ${member.name}
+                      </div>
+                      <div style="color:#A08060; font-size:10px; margin-top:1px;">
+                        ${member.lat.toFixed(5)}, ${member.lng.toFixed(5)}
+                      </div>
+                    </div>
+                  </div>
+                  <a
+                    href="${mapsUrl}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style="
+                      display:flex; align-items:center; justify-content:center; gap:6px;
+                      background:#F97316; color:white; border-radius:10px;
+                      padding:8px 12px; text-decoration:none;
+                      font-size:12px; font-weight:600; letter-spacing:0.02em;
+                      box-shadow:0 2px 8px rgba(249,115,22,0.30);
+                      transition:background 0.2s;
+                    "
+                    onmouseover="this.style.background='#EA6C10'"
+                    onmouseout="this.style.background='#F97316'"
+                  >
+                    <svg width="13" height="13" fill="none" stroke="white" stroke-width="2.5"
+                      stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+                      <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+                    </svg>
+                    Get Directions
+                  </a>
+                </div>
+              `
+
+              marker
+                .bindPopup(popupHtml, {
+                  offset: [0, -24],
+                  maxWidth: 220,
+                  closeButton: false,
+                })
+                .openPopup()
+            })
+          } else {
+            marker.bindPopup(
+              `<b style="font-family:'DM Sans',sans-serif;color:#1A1008">${member.name}</b>
+               <span style="color:#F97316;font-size:11px"> (you)</span>`,
+              { offset: [0, -24], closeButton: false }
+            )
+          }
+
+          markersRef.current[member.id] = marker
         }
       })
 
@@ -507,7 +605,6 @@ export default function Tracker() {
 
         {/* ── Floating header ── */}
         <div className="tr-header">
-          {/* Mini logo */}
           <div className="tr-logo-mark">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 21s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/>
@@ -560,7 +657,7 @@ export default function Tracker() {
         </button>
 
         {/* ── Members bottom sheet ── */}
-        <div className="tr-sheet">
+        <div className="tr-sheet" ref={sheetRef}>
           <div className="tr-handle-wrap" onClick={() => setShowMembers(p => !p)}>
             <div className="tr-handle" />
           </div>

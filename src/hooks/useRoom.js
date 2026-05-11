@@ -7,28 +7,27 @@ export function useRoom() {
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState(null)
 
-  async function createRoom({ durationSeconds }) {
-    setLoading(true)
-    setError(null)
-    try {
-      const roomId    = generateRoomId()
-      const userId    = generateUserId()
-      const expiresAt = Date.now() + durationSeconds * 1000
+async function createRoom({ durationSeconds, roomId }) {
+  setLoading(true)
+  setError(null)
+  try {
+    const userId    = generateUserId()
+    const expiresAt = Date.now() + durationSeconds * 1000
 
-      await setDoc(doc(db, 'rooms', roomId), {
-        createdAt:   serverTimestamp(),
-        expiresAt,
-        createdBy:   userId,
-      })
+    await setDoc(doc(db, 'rooms', roomId), {
+      createdAt:   serverTimestamp(),
+      expiresAt,
+      createdBy:   userId,
+    })
 
-      return { roomId, userId, expiresAt }
-    } catch (err) {
-      setError(err.message)
-      return null
-    } finally {
-      setLoading(false)
-    }
+    return { roomId, userId, expiresAt }
+  } catch (err) {
+    setError(err.message)
+    return null
+  } finally {
+    setLoading(false)
   }
+}
 
   async function joinRoom({ roomId }) {
     setLoading(true)

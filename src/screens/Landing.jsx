@@ -112,7 +112,7 @@ const STYLES = `
     letter-spacing: 0.12em;
     text-transform: uppercase;
   }
-
+  
   /* Duration pills */
   .tt-pill {
     flex: 1;
@@ -188,6 +188,35 @@ const STYLES = `
     overflow: hidden;
   }
 
+  /* Copy button */
+  .tt-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #fff;
+    border: 1.5px solid #F0DFC8;
+    border-radius: 10px;
+    padding: 7px 16px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: #A08060;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 12px;
+  }
+  .tt-copy-btn:hover {
+    background: #FFF0DC;
+    border-color: #FDBA74;
+    color: #C2570A;
+  }
+  .tt-copy-btn:active { transform: scale(0.95); }
+  .tt-copy-btn.copied {
+    background: #FFF0DC;
+    border-color: #FDBA74;
+    color: #C2570A;
+  }
+
   /* Error */
   .tt-error {
     background: #FEF2F2;
@@ -240,11 +269,12 @@ export default function Landing() {
   const [joinId, setJoinId]     = useState('')
   const [duration, setDuration] = useState(3600)
   const [previewId]             = useState(generateRoomId)
+  const [copied, setCopied]     = useState(false)
 
   async function handleCreate() {
     if (!name.trim()) return
     const colorIndex = Math.floor(Math.random() * MEMBER_COLORS.length)
-    const result = await createRoom({ durationSeconds: duration })
+    const result = await createRoom({ durationSeconds: duration, roomId: previewId })
     if (result) {
       startSession({ ...result, name: name.trim(), colorIndex })
       navigate('/tracker')
@@ -259,6 +289,12 @@ export default function Landing() {
       startSession({ ...result, name: name.trim(), colorIndex })
       navigate('/tracker')
     }
+  }
+
+  function handleCopy() {
+    navigator.clipboard.writeText(previewId)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   return (
@@ -374,7 +410,6 @@ export default function Landing() {
               {/* Live location pulse badge */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, marginTop: 6 }}>
                 <div style={{ position: 'relative', width: 20, height: 20 }}>
-                  {/* Radar rings */}
                   <div style={{
                     position: 'absolute', inset: 0,
                     borderRadius: '50%',
@@ -387,7 +422,6 @@ export default function Landing() {
                     border: '1.5px solid #F97316',
                     animation: 'radarPulse 2s ease-out 0.7s infinite',
                   }}/>
-                  {/* Center dot */}
                   <div style={{
                     position: 'absolute',
                     top: '50%', left: '50%',
@@ -405,7 +439,6 @@ export default function Landing() {
               Real-time location for your whole group
             </p>
 
-            {/* Single chip */}
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14 }}>
               <span className="tt-chip" style={{ background: '#F5F3FF', color: '#6D28D9', border: '1px solid #EDE9FE' }}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -420,7 +453,6 @@ export default function Landing() {
           {!mode && (
             <div className="tt-panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-              {/* Mini map — no name labels on pins */}
               <div className="tt-card" style={{ padding: 0, overflow: 'hidden', marginBottom: 4 }}>
                 <svg width="100%" viewBox="0 0 360 100" xmlns="http://www.w3.org/2000/svg">
                   <rect width="360" height="100" fill="#FFF7ED"/>
@@ -434,23 +466,17 @@ export default function Landing() {
                     <line x1="240" y1="0" x2="240" y2="100"/>
                     <line x1="300" y1="0" x2="300" y2="100"/>
                   </g>
-                  {/* Dashed route */}
                   <path d="M50 75 Q80 55 120 60 Q160 65 200 40 Q240 20 290 35" fill="none" stroke="#F97316" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="5 4" opacity="0.7"/>
-                  {/* Pin 1 — orange, no name */}
                   <circle cx="120" cy="60" r="13" fill="#F97316" opacity="0.12"/>
                   <circle cx="120" cy="60" r="6" fill="#F97316"/>
                   <circle cx="120" cy="60" r="2.5" fill="#fff"/>
-                  {/* Pin 2 — violet */}
                   <circle cx="200" cy="40" r="13" fill="#7C3AED" opacity="0.12"/>
                   <circle cx="200" cy="40" r="6" fill="#7C3AED"/>
                   <circle cx="200" cy="40" r="2.5" fill="#fff"/>
-                  {/* Pin 3 — green */}
                   <circle cx="285" cy="35" r="13" fill="#16A34A" opacity="0.12"/>
                   <circle cx="285" cy="35" r="6" fill="#16A34A"/>
                   <circle cx="285" cy="35" r="2.5" fill="#fff"/>
-                  {/* Start dot */}
                   <circle cx="50" cy="75" r="4" fill="#A08060" opacity="0.5"/>
-                  {/* Destination flag */}
                   <rect x="286" y="26" width="9" height="6" rx="1.5" fill="#F97316" opacity="0.8"/>
                   <line x1="290" y1="26" x2="290" y2="40" stroke="#F97316" strokeWidth="1.5" opacity="0.8"/>
                 </svg>
@@ -516,6 +542,27 @@ export default function Landing() {
                   {previewId}
                 </p>
                 <p style={{ fontSize: 11, color: '#C4A882', marginTop: 8 }}>Share this code with your travel crew ✈</p>
+                <button
+                  className={`tt-copy-btn${copied ? ' copied' : ''}`}
+                  onClick={handleCopy}
+                >
+                  {copied ? (
+                    <>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                      </svg>
+                      Copy code
+                    </>
+                  )}
+                </button>
               </div>
 
               <div>
@@ -545,20 +592,7 @@ export default function Landing() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: 8 }}>
-                <div className="tt-feature-pill" style={{ background: '#F5F3FF' }}>
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>📍</div>
-                  <div style={{ fontSize: 11, color: '#6D28D9', fontWeight: 500 }}>Live pins</div>
-                </div>
-                <div className="tt-feature-pill" style={{ background: '#FFF7ED' }}>
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>🔔</div>
-                  <div style={{ fontSize: 11, color: '#C2570A', fontWeight: 500 }}>Alerts</div>
-                </div>
-                <div className="tt-feature-pill" style={{ background: '#F0FDF4' }}>
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>🗺️</div>
-                  <div style={{ fontSize: 11, color: '#15803D', fontWeight: 500 }}>Group map</div>
-                </div>
-              </div>
+              
 
               {error && <div className="tt-error">{error}</div>}
 
@@ -584,7 +618,6 @@ export default function Landing() {
               </button>
 
               <div className="tt-card" style={{ textAlign: 'center', padding: '24px 20px' }}>
-                {/* Avatar group — no names */}
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
                   {[
                     { bg: '#FFF7ED', border: '#FDE9CC', emoji: '🧑', dashed: false },
