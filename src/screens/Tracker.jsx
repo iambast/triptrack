@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSession } from '../lib/session'
 import { useMembers } from '../hooks/useMembers'
@@ -45,7 +45,6 @@ const STYLES = `
     box-shadow: 0 4px 20px rgba(249,115,22,0.08);
   }
 
-  /* Logo mark inside header */
   .tr-logo-mark {
     width: 28px; height: 28px;
     background: #F97316;
@@ -94,6 +93,28 @@ const STYLES = `
     letter-spacing: 0.04em;
   }
 
+  /* ── Expiry warning banner ── */
+  .tr-expiry-warn {
+    position: absolute;
+    top: 78px; left: 12px; right: 12px;
+    z-index: 800;
+    background: #FFFBEB;
+    border: 1.5px solid #FDE68A;
+    border-radius: 14px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #92400E;
+    text-align: center;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    animation: trFadeIn 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+
   .tr-leave-btn {
     background: #FEF2F2;
     border: 1.5px solid #FECACA;
@@ -127,35 +148,30 @@ const STYLES = `
     animation: trFadeIn 0.3s ease;
   }
 
-  /* ── Share button ── */
-  .tr-share-btn {
+  /* ── Recenter FAB ── */
+  .tr-recenter-fab {
     position: absolute;
-    top: 78px; right: 12px;
     z-index: 800;
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    background: rgba(255,248,240,0.90);
+    right: 12px;
+    background: rgba(255,248,240,0.92);
     border: 1.5px solid #F0DFC8;
     border-radius: 14px;
-    padding: 9px 14px;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 12px;
-    font-weight: 600;
-    color: #A08060;
+    width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: center;
     cursor: pointer;
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 2px 12px rgba(249,115,22,0.10);
     transition: all 0.2s;
-    box-shadow: 0 2px 12px rgba(249,115,22,0.08);
+    color: #A08060;
   }
-  .tr-share-btn:hover { color: #F97316; border-color: #FDBA74; background: #FFF7ED; }
-  .tr-share-btn:active { transform: scale(0.95); }
-  .tr-share-btn.copied {
-    color: #16A34A;
-    border-color: #BBF7D0;
-    background: #F0FDF4;
+  .tr-recenter-fab:hover {
+    background: #FFF7ED;
+    border-color: #FDBA74;
+    color: #F97316;
+    transform: scale(1.06);
   }
+  .tr-recenter-fab:active { transform: scale(0.94); }
 
   /* ── Bottom sheet ── */
   .tr-sheet {
@@ -169,6 +185,11 @@ const STYLES = `
     -webkit-backdrop-filter: blur(28px);
     transition: transform 0.32s cubic-bezier(0.22,1,0.36,1);
     box-shadow: 0 -4px 24px rgba(249,115,22,0.08);
+    animation: trSheetIn 0.4s cubic-bezier(0.22,1,0.36,1) both;
+  }
+  @keyframes trSheetIn {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
   }
 
   .tr-handle-wrap {
@@ -299,8 +320,19 @@ const STYLES = `
     color: #C4A882;
     flex-shrink: 0;
   }
+  /* NEW: paused status for members silent > 2 min */
+  .tr-status-paused {
+    background: #FFFBEB;
+    border: 1.5px solid #FDE68A;
+    border-radius: 100px;
+    padding: 3px 9px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #92400E;
+    flex-shrink: 0;
+  }
 
-  /* Leaflet overrides for light/warm theme */
+  /* Leaflet overrides */
   .leaflet-control-zoom {
     border: none !important;
     box-shadow: none !important;
@@ -350,16 +382,43 @@ const STYLES = `
   }
 `
 
+// ── Smooth marker interpolation ──────────────────────────────────────────────
+// Moves a Leaflet marker smoothly from its current position to [targetLat, targetLng]
+// over `steps` animation frames (~1 second at 50ms intervals).
+function lerpMarker(marker, targetLat, targetLng, steps = 20) {
+  const start = marker.getLatLng()
+  // Skip if essentially no movement (avoids jitter on identical coords)
+  if (
+    Math.abs(start.lat - targetLat) < 0.000001 &&
+    Math.abs(start.lng - targetLng) < 0.000001
+  ) return
+
+  let i = 0
+  const interval = setInterval(() => {
+    i++
+    const t = i / steps
+    marker.setLatLng([
+      start.lat + (targetLat - start.lat) * t,
+      start.lng  + (targetLng  - start.lng)  * t,
+    ])
+    if (i >= steps) clearInterval(interval)
+  }, 50)
+}
+
+// ── Countdown helpers ────────────────────────────────────────────────────────
+const FIVE_MINUTES_MS = 5 * 60 * 1000
+
 export default function Tracker() {
   const navigate   = useNavigate()
   const { session, endSession } = useSession()
-  const [countdown, setCountdown] = useState('')
-  const [copied, setCopied]       = useState(false)
-  const [showMembers, setShowMembers] = useState(true)
-  const mapRef     = useRef(null)
-  const leafletMap = useRef(null)
-  const markersRef = useRef({})
-  const sheetRef   = useRef(null)
+  const [countdown, setCountdown]       = useState('')
+  const [nearExpiry, setNearExpiry]     = useState(false)   // NEW: <5 min warning
+  const [showMembers, setShowMembers]   = useState(true)
+  const mapRef      = useRef(null)
+  const leafletMap  = useRef(null)
+  const markersRef  = useRef({})
+  const sheetRef    = useRef(null)
+  const hasAutoFitted = useRef(false)   // NEW: only auto-fit bounds once
 
   const { members, locationError } = useMembers({
     roomId:     session?.roomId,
@@ -368,25 +427,27 @@ export default function Tracker() {
     colorIndex: session?.colorIndex,
   })
 
-  // Redirect if no session
+  // ── Redirect if no session ───────────────────────────────────────────────
   useEffect(() => {
     if (!session) navigate('/')
   }, [session])
 
-  // Countdown timer
+  // ── Countdown timer + expiry warning ────────────────────────────────────
   useEffect(() => {
     if (!session) return
     const tick = () => {
+      const remaining = session.expiresAt - Date.now()
       const t = timeLeft(session.expiresAt)
       if (!t) { handleLeave(); return }
       setCountdown(t)
+      setNearExpiry(remaining < FIVE_MINUTES_MS)   // NEW
     }
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [session])
 
-  // Dynamic zoom control offset — follows sheet height
+  // ── Dynamic zoom control offset ──────────────────────────────────────────
   useEffect(() => {
     const updateZoomOffset = () => {
       if (!sheetRef.current) return
@@ -394,14 +455,12 @@ export default function Tracker() {
       const zoomEl = document.querySelector('.leaflet-control-zoom')
       if (zoomEl) zoomEl.style.marginBottom = `${h + 16}px`
     }
-
     updateZoomOffset()
-    // Wait for sheet open/close animation to finish before measuring
     const t = setTimeout(updateZoomOffset, 350)
     return () => clearTimeout(t)
   }, [showMembers, members])
 
-  // Init Leaflet — warm light tiles
+  // ── Init Leaflet ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current || leafletMap.current) return
 
@@ -409,13 +468,12 @@ export default function Tracker() {
       import('leaflet/dist/leaflet.css')
 
       leafletMap.current = L.map(mapRef.current, {
-        center:           [20.5937, 78.9629],
-        zoom:             5,
-        zoomControl:      false,
+        center:             [20.5937, 78.9629],
+        zoom:               5,
+        zoomControl:        false,
         attributionControl: false,
       })
 
-      // Warm CartoDB Voyager tiles — matches the cream palette
       L.tileLayer(
         'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
         { maxZoom: 19, subdomains: 'abcd' }
@@ -423,7 +481,6 @@ export default function Tracker() {
 
       L.control.zoom({ position: 'bottomright' }).addTo(leafletMap.current)
 
-      // Set initial offset after zoom control mounts
       setTimeout(() => {
         if (sheetRef.current) {
           const h = sheetRef.current.offsetHeight
@@ -441,13 +498,24 @@ export default function Tracker() {
     }
   }, [])
 
-  // Update markers
+  // ── Recenter: fit bounds to all visible members ──────────────────────────
+  // NEW: extracted so both auto-fit and the FAB can call it.
+  const recenterMap = useCallback(() => {
+    if (!leafletMap.current) return
+    import('leaflet').then(L => {
+      const validMembers = members.filter(m => m.lat && m.lng)
+      if (validMembers.length === 0) return
+      const bounds = L.latLngBounds(validMembers.map(m => [m.lat, m.lng]))
+      leafletMap.current.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 })
+    })
+  }, [members])
+
+  // ── Update markers ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!leafletMap.current) return
 
     import('leaflet').then(L => {
       const validMembers = members.filter(m => m.lat && m.lng)
-      const meMarker = members.find(m => m.isMe)
 
       // Remove markers for members who left
       Object.keys(markersRef.current).forEach(id => {
@@ -490,22 +558,20 @@ export default function Tracker() {
         })
 
         if (markersRef.current[member.id]) {
-          markersRef.current[member.id]
-            .setLatLng([member.lat, member.lng])
-            .setIcon(icon)
+          // FIX: use smooth lerp instead of instant setLatLng
+          lerpMarker(markersRef.current[member.id], member.lat, member.lng)
+          markersRef.current[member.id].setIcon(icon)
         } else {
           const marker = L.marker([member.lat, member.lng], { icon })
             .addTo(leafletMap.current)
 
           if (!member.isMe) {
             marker.on('click', () => {
-              const origin = meMarker?.lat && meMarker?.lng
-                ? `${meMarker.lat},${meMarker.lng}`
-                : ''
-              const dest = `${member.lat},${member.lng}`
-              const mapsUrl = origin
-                ? `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=driving`
-                : `https://www.google.com/maps/dir/?api=1&destination=${dest}`
+              const dest    = `${member.lat},${member.lng}`
+              const mapsUrl =
+                `https://www.google.com/maps/dir/?api=1` +
+                `&destination=${dest}` +
+                `&travelmode=driving`
 
               const popupHtml = `
                 <div style="font-family:'DM Sans',sans-serif; min-width:150px; padding:2px 4px;">
@@ -551,8 +617,8 @@ export default function Tracker() {
 
               marker
                 .bindPopup(popupHtml, {
-                  offset: [0, -24],
-                  maxWidth: 220,
+                  offset:      [0, -24],
+                  maxWidth:    220,
                   closeButton: false,
                 })
                 .openPopup()
@@ -569,24 +635,27 @@ export default function Tracker() {
         }
       })
 
-      if (validMembers.length > 0) {
+      // FIX: only auto-fit bounds the very first time we have locations
+      if (validMembers.length > 0 && !hasAutoFitted.current) {
         const bounds = L.latLngBounds(validMembers.map(m => [m.lat, m.lng]))
         leafletMap.current.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 })
+        hasAutoFitted.current = true
       }
     })
   }, [members])
 
+  // ── Position the recenter FAB above the zoom controls ───────────────────
+  // We compute this from sheetRef so it sits above the sheet.
+  const [fabBottom, setFabBottom] = useState(160)
+  useEffect(() => {
+    if (!sheetRef.current) return
+    const h = sheetRef.current.offsetHeight
+    setFabBottom(h + 58) // 58px above sheet = above zoom controls
+  }, [showMembers, members])
+
   function handleLeave() {
     endSession()
     navigate('/')
-  }
-
-  function handleCopy() {
-    const link = `${window.location.origin}/join/${session?.roomId}`
-    navigator.clipboard.writeText(link).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2200)
-    })
   }
 
   if (!session) return null
@@ -620,7 +689,9 @@ export default function Tracker() {
           {!sessionExpired && (
             <>
               <div className="tr-live-dot" />
-              <span className="tr-countdown">{countdown}</span>
+              <span className="tr-countdown" style={nearExpiry ? { color: '#F97316', fontWeight: 700 } : {}}>
+                {countdown}
+              </span>
             </>
           )}
           <button className="tr-leave-btn" onClick={handleLeave}>Leave</button>
@@ -630,30 +701,40 @@ export default function Tracker() {
         {locationError && (
           <div className="tr-gps-error">
             <svg style={{ display:'inline', width:12, height:12, marginRight:5, verticalAlign:-1 }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
             {locationError}
           </div>
         )}
 
-        {/* ── Share button ── */}
-        <button
-          className={`tr-share-btn ${copied ? 'copied' : ''}`}
-          onClick={handleCopy}
-          style={{ top: locationError ? 120 : 78 }}
-        >
-          {copied ? (
-            <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
-          ) : (
+        {/* ── Expiry warning (< 5 min) ── */}
+        {nearExpiry && !sessionExpired && !locationError && (
+          <div className="tr-expiry-warn">
             <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
             </svg>
-          )}
-          {copied ? 'Copied!' : 'Share link'}
+            Session ends in {countdown} — save anything you need!
+          </div>
+        )}
+
+        {/* ── Recenter FAB ── */}
+        <button
+          className="tr-recenter-fab"
+          style={{ bottom: fabBottom }}
+          onClick={recenterMap}
+          title="Re-center map"
+        >
+          {/* crosshair / recenter icon */}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <line x1="12" y1="2"  x2="12" y2="6"/>
+            <line x1="12" y1="18" x2="12" y2="22"/>
+            <line x1="2"  y1="12" x2="6"  y2="12"/>
+            <line x1="18" y1="12" x2="22" y2="12"/>
+          </svg>
         </button>
 
         {/* ── Members bottom sheet ── */}
@@ -683,8 +764,9 @@ export default function Tracker() {
                   const ageStr = ageMs < 60000
                     ? 'just now'
                     : `${Math.floor(ageMs / 60000)}m ago`
-                  const hasLoc = m.lat && m.lng
-                  const isLive = hasLoc && ageMs < 30000
+                  const hasLoc  = m.lat && m.lng
+                  const isLive  = hasLoc && ageMs < 30000
+                  const isPaused = hasLoc && ageMs >= 2 * 60000  // NEW: silent > 2 min
 
                   return (
                     <div key={m.id} className="tr-member-row">
@@ -713,13 +795,21 @@ export default function Tracker() {
                           {m.isMe && <span className="tr-you-badge">you</span>}
                         </div>
                         <div className="tr-member-sub">
-                          {hasLoc ? `Updated ${ageStr}` : 'Getting location…'}
+                          {hasLoc
+                            ? isPaused
+                              ? 'Location paused'           // NEW
+                              : `Updated ${ageStr}`
+                            : 'Getting location…'
+                          }
                         </div>
                       </div>
 
+                      {/* NEW: three-state status pill */}
                       {isLive
                         ? <span className="tr-status-live">live</span>
-                        : <span className="tr-status-idle">idle</span>
+                        : isPaused
+                          ? <span className="tr-status-paused">paused</span>
+                          : <span className="tr-status-idle">idle</span>
                       }
                     </div>
                   )

@@ -572,7 +572,7 @@ export default function Landing() {
                   type="text"
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  placeholder="e.g. Aryan"
+                  placeholder="Enter your name"
                   maxLength={20}
                 />
               </div>
@@ -654,7 +654,7 @@ export default function Landing() {
                   type="text"
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  placeholder="e.g. Priya"
+                  placeholder="Enter your name"
                   maxLength={20}
                 />
               </div>
